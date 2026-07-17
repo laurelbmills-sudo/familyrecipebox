@@ -1288,25 +1288,44 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;}
     SEARCH_INDEX.push({type:'card', key:card.cat, id:card.id, label:card.title, sub:card.catName.replace(/&amp;/g,'&')});
   });
 
+  function matchTag(item, q){
+    if(item.type!=='card') return null;
+    var card = cardById(item.id);
+    if(!card) return null;
+    var tags = visibleTags(card);
+    for(var i=0;i<tags.length;i++){
+      if(tags[i].toLowerCase().indexOf(q)!==-1) return tags[i];
+    }
+    return null;
+  }
+
   function runSearch(q){
     q = q.trim().toLowerCase();
     if(!q){ searchResults.classList.remove('is-open'); searchResults.innerHTML=''; return; }
-    var matches = SEARCH_INDEX.filter(function(item){
-      return item.label.toLowerCase().indexOf(q)!==-1;
-    }).slice(0,7);
+    var matches = [];
+    for(var i=0;i<SEARCH_INDEX.length && matches.length<7;i++){
+      var item = SEARCH_INDEX[i];
+      if(item.label.toLowerCase().indexOf(q)!==-1){
+        matches.push({item:item, tag:null});
+      } else {
+        var tag = matchTag(item, q);
+        if(tag){ matches.push({item:item, tag:tag}); }
+      }
+    }
 
     if(matches.length===0){
       searchResults.innerHTML = '<div class="search-empty">No matches yet &mdash; more of the shelf loads in soon.</div>';
     } else {
       searchResults.innerHTML = matches.map(function(m,i){
+        var subText = m.tag ? ('Tag · '+m.tag) : m.item.sub;
         return '<button class="search-result" type="button" data-index="'+i+'">'+
-          '<span class="r-title">'+esc(m.label)+'</span><span class="r-cat">'+esc(m.sub)+'</span>'+
+          '<span class="r-title">'+esc(m.item.label)+'</span><span class="r-cat">'+esc(subText)+'</span>'+
         '</button>';
       }).join('');
 
       Array.prototype.forEach.call(searchResults.querySelectorAll('.search-result'), function(btn,i){
         btn.addEventListener('click', function(){
-          var m = matches[i];
+          var m = matches[i].item;
           searchInput.value = '';
           searchResults.classList.remove('is-open');
           window.location.hash = m.type==='card' ? ('recipe/'+m.id) : ('category/'+m.key);
