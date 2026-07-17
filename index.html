@@ -176,6 +176,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;}
 .search-result:hover,.search-result:focus-visible{background:rgba(22,18,28,.05);}
 .search-result .r-title{color:var(--ink);}
 .search-result .r-cat{color:var(--ink-faint);font-size:.76rem;white-space:nowrap;}
+.search-result.search-seeall{justify-content:center;font-weight:700;color:var(--ink);background:rgba(22,18,28,.04);}
 .search-empty{
   padding:.75rem .9rem;
   font-family:var(--font-ui);
@@ -1161,6 +1162,78 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;}
     });
   }
 
+  function renderSearchPage(query){
+    var q = query.trim().toLowerCase();
+
+    categoryBand.className = 'category-band tone-dark';
+    categoryBand.style.background = 'var(--ink)';
+    subcatRow.hidden = true;
+    subcatRow.innerHTML = '';
+
+    var full = CARDS.filter(function(card){
+      if(card.title.toLowerCase().indexOf(q)!==-1){ return true; }
+      var tags = visibleTags(card);
+      for(var i=0;i<tags.length;i++){
+        if(tags[i].toLowerCase().indexOf(q)!==-1){ return true; }
+      }
+      return false;
+    });
+
+    var visible = showSavedOnly ? full.filter(function(card){ return saved.indexOf(card.id)!==-1; }) : full;
+    visible = visible.slice().sort(function(a,b){ return a.title.localeCompare(b.title); });
+
+    document.getElementById('catEyebrow').textContent = full.length + (full.length===1 ? ' recipe found' : ' recipes found');
+    document.getElementById('catTitle').textContent = '"' + query + '"';
+
+    var groups = {};
+    visible.forEach(function(card){
+      var letter = card.title.charAt(0).toUpperCase();
+      if(!groups[letter]){ groups[letter] = []; }
+      groups[letter].push(card);
+    });
+    var lettersWithRecipes = Object.keys(groups).sort();
+
+    alphaStrip.innerHTML = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(function(letter){
+      var has = !!groups[letter];
+      return '<button class="alpha-btn'+(has?' has-recipes':'')+'" type="button" data-letter="'+letter+'"'+(has?'':' disabled')+'>'+letter+'</button>';
+    }).join('');
+    Array.prototype.forEach.call(alphaStrip.querySelectorAll('.alpha-btn.has-recipes'), function(btn){
+      btn.style.background = 'var(--ink)';
+      btn.style.color = 'var(--paper)';
+      btn.addEventListener('click', function(){
+        var target = document.getElementById('letter-'+btn.getAttribute('data-letter'));
+        if(target){ target.scrollIntoView({behavior:'smooth', block:'start'}); }
+      });
+    });
+
+    if(lettersWithRecipes.length===0){
+      catRecipeGroups.innerHTML = '<p class="empty-note">' +
+        (showSavedOnly ? 'Nothing saved matches this search.' : 'No recipes match &ldquo;'+esc(query)+'&rdquo; yet.') +
+        '</p>';
+      return;
+    }
+
+    catRecipeGroups.innerHTML = '';
+    lettersWithRecipes.forEach(function(letter){
+      var groupEl = document.createElement('div');
+      groupEl.className = 'alpha-group';
+      groupEl.id = 'letter-'+letter;
+
+      var tab = document.createElement('div');
+      tab.className = 'alpha-tab tone-dark';
+      tab.style.background = 'var(--ink)';
+      tab.textContent = letter;
+      groupEl.appendChild(tab);
+
+      var grid = document.createElement('div');
+      grid.className = 'card-grid';
+      groups[letter].forEach(function(card){ grid.appendChild(makeCardEl(card)); });
+      groupEl.appendChild(grid);
+
+      catRecipeGroups.appendChild(groupEl);
+    });
+  }
+
   function cardById(id){
     for(var i=0;i<CARDS.length;i++){ if(CARDS[i].id===id) return CARDS[i]; }
     return null;
@@ -1255,6 +1328,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;}
     var hash = window.location.hash.replace(/^#\/?/,'');
     var mRecipe = hash.match(/^recipe\/([a-z0-9-]+)$/);
     var mCat = hash.match(/^category\/([a-z]+)$/);
+    var mSearch = hash.match(/^search\/(.+)$/);
     if(mRecipe && cardById(mRecipe[1])){
       shelfView.hidden = true;
       categoryView.hidden = true;
@@ -1267,6 +1341,12 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;}
       recipeView.hidden = true;
       homeBtn.hidden = false;
       renderCategoryPage(mCat[1]);
+    } else if(mSearch && decodeURIComponent(mSearch[1]).trim()){
+      shelfView.hidden = true;
+      categoryView.hidden = false;
+      recipeView.hidden = true;
+      homeBtn.hidden = false;
+      renderSearchPage(decodeURIComponent(mSearch[1]));
     } else {
       categoryView.hidden = true;
       recipeView.hidden = true;
@@ -1302,28 +1382,33 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;}
   function runSearch(q){
     q = q.trim().toLowerCase();
     if(!q){ searchResults.classList.remove('is-open'); searchResults.innerHTML=''; return; }
-    var matches = [];
-    for(var i=0;i<SEARCH_INDEX.length && matches.length<7;i++){
+    var allMatches = [];
+    for(var i=0;i<SEARCH_INDEX.length;i++){
       var item = SEARCH_INDEX[i];
       if(item.label.toLowerCase().indexOf(q)!==-1){
-        matches.push({item:item, tag:null});
+        allMatches.push({item:item, tag:null});
       } else {
         var tag = matchTag(item, q);
-        if(tag){ matches.push({item:item, tag:tag}); }
+        if(tag){ allMatches.push({item:item, tag:tag}); }
       }
     }
+    var matches = allMatches.slice(0,7);
 
     if(matches.length===0){
       searchResults.innerHTML = '<div class="search-empty">No matches yet &mdash; more of the shelf loads in soon.</div>';
     } else {
-      searchResults.innerHTML = matches.map(function(m,i){
+      var rowsHTML = matches.map(function(m,i){
         var subText = m.tag ? ('Tag · '+m.tag) : m.item.sub;
         return '<button class="search-result" type="button" data-index="'+i+'">'+
           '<span class="r-title">'+esc(m.item.label)+'</span><span class="r-cat">'+esc(subText)+'</span>'+
         '</button>';
       }).join('');
+      if(allMatches.length > matches.length){
+        rowsHTML += '<button class="search-result search-seeall" type="button" id="searchSeeAll">See all '+allMatches.length+' results for &ldquo;'+esc(q)+'&rdquo;</button>';
+      }
+      searchResults.innerHTML = rowsHTML;
 
-      Array.prototype.forEach.call(searchResults.querySelectorAll('.search-result'), function(btn,i){
+      Array.prototype.forEach.call(searchResults.querySelectorAll('.search-result:not(.search-seeall)'), function(btn,i){
         btn.addEventListener('click', function(){
           var m = matches[i].item;
           searchInput.value = '';
@@ -1331,12 +1416,28 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;}
           window.location.hash = m.type==='card' ? ('recipe/'+m.id) : ('category/'+m.key);
         });
       });
+      var seeAllBtn = document.getElementById('searchSeeAll');
+      if(seeAllBtn){
+        seeAllBtn.addEventListener('click', function(){
+          goToSearchPage(searchInput.value);
+        });
+      }
     }
     searchResults.classList.add('is-open');
   }
 
+  function goToSearchPage(q){
+    q = q.trim();
+    if(!q) return;
+    searchResults.classList.remove('is-open');
+    window.location.hash = 'search/' + encodeURIComponent(q);
+  }
+
   searchInput.addEventListener('input', function(){ runSearch(searchInput.value); });
   searchInput.addEventListener('focus', function(){ if(searchInput.value) runSearch(searchInput.value); });
+  searchInput.addEventListener('keydown', function(e){
+    if(e.key === 'Enter'){ goToSearchPage(searchInput.value); }
+  });
   document.addEventListener('click', function(e){
     if(!e.target.closest('.search-shell')){ searchResults.classList.remove('is-open'); }
   });
